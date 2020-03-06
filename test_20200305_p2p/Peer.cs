@@ -119,6 +119,11 @@ namespace test_20200305_p2p
             }
         }
 
+        public void AddMessage(Message message)
+        {
+            Messages.Add(message);
+        }
+
         List<byte> RecvBuffer = new List<byte>();
         public void HandleData(byte[] data)
         {

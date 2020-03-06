@@ -66,16 +66,63 @@ namespace test_20200305_p2p
             if(e.UserState != null)
             {
                 IncomingData id = e.UserState as IncomingData;
-                Peer peer = Threads.FirstOrDefault(el => { return el.EndPoint != null && el.EndPoint.Equals(id.EndPoint); });
-                if(peer != null)
+
+                HandleData(id.EndPoint, id.Data);
+            }
+        }
+
+        private List<byte> RecvBuffer = new List<byte>();
+        private void HandleData(IPEndPoint end_point, byte[] data)
+        {
+            Peer peer = Threads.FirstOrDefault(el => { return el.EndPoint != null && el.EndPoint.Equals(end_point); });
+            if (peer == null)
+            {
+                peer = new Peer() { EndPoint = end_point };
+                Threads.Add(peer);
+            }
+
+            RecvBuffer.AddRange(data);
+
+            bool must_continue = true;
+            while (must_continue)
+            {
+                byte[] recv_bytes = RecvBuffer.ToArray();
+
+                if (recv_bytes.Length >= sizeof(int))
                 {
-                    peer.HandleData(id.Data);
+                    int type = BitConverter.ToInt32(recv_bytes, 0);
+
+                    switch ((DataType)type)
+                    {
+                        case DataType.Message:
+                            if (recv_bytes.Length >= 2 * sizeof(int))
+                            {
+                                int size = BitConverter.ToInt32(recv_bytes, sizeof(int));
+                                if (recv_bytes.Length >= 2 * sizeof(int) + size)
+                                {
+                                    string msg = Encoding.ASCII.GetString(recv_bytes, 2 * sizeof(int), size);
+                                    peer.AddMessage(new Message() { IsReceivedMessage = true, Data = msg });
+
+                                    RecvBuffer.RemoveRange(0, 2 * sizeof(int) + size);
+                                }
+                                else
+                                {
+                                    must_continue = false;
+                                }
+                            }
+                            else
+                            {
+                                must_continue = false;
+                            }
+                            break;
+
+                        case DataType.MessageAck:
+                            break;
+                    }
                 }
                 else
                 {
-                    peer = new Peer() { EndPoint = id.EndPoint };
-                    Threads.Add(peer);
-                    peer.HandleData(id.Data);
+                    must_continue = false;
                 }
             }
         }
