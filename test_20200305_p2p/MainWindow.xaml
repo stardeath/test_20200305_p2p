@@ -9,6 +9,7 @@
 	<Grid>
 		<Grid.RowDefinitions>
 			<RowDefinition Height="auto" />
+			<RowDefinition Height="auto" />
 			<RowDefinition Height="*" />
 		</Grid.RowDefinitions>
 
@@ -35,8 +36,16 @@
 
 		</Grid>
 
-		<TabControl
+		<StackPanel
 			Grid.Row="1"
+			Orientation="Horizontal">
+			<Button
+				Content="New Tab"
+				Command="{Binding CreateThreadCommand}" />
+		</StackPanel>
+
+		<TabControl
+			Grid.Row="2"
 			ItemsSource="{Binding Threads}">
 			<TabControl.ItemTemplate>
 				<DataTemplate>

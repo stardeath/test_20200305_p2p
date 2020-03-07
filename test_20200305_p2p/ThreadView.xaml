@@ -18,11 +18,12 @@
 			Orientation="Horizontal">
 
 			<Label Content="Peer Name : " />
-			<TextBox Width="100" Text="{Binding Name}" />
+			<TextBox Width="100" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
 			<Label Content="Ip : " />
-			<TextBox Width="100" Text="{Binding AddressAsString}" />
+			<TextBox Width="100" Text="{Binding AddressAsString, UpdateSourceTrigger=PropertyChanged}" />
 			<Label Content="Port : " />
 			<TextBox Width="50" Text="{Binding Port}" />
+			<Button Content="Send Ident" Command="{Binding SendIdentCommand, UpdateSourceTrigger=PropertyChanged}" />
 		</StackPanel>
 
 		<ListView
@@ -47,7 +48,7 @@
 
 			<TextBox
 				Grid.Column="0"
-				Text="{Binding Message}" />
+				Text="{Binding Message, UpdateSourceTrigger=PropertyChanged}" />
 			<Button
 				Grid.Column="1"
 				Content="Send"

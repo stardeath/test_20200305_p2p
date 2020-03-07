@@ -20,15 +20,53 @@ namespace test_20200305_p2p
 
 		private Dictionary<string, (IPAddress, int)> m_Directory = new Dictionary<string, (IPAddress, int)>();
 
+		internal void Parse( string[] args )
+		{
+			if( args.Length > 0 )
+			{
+				char[] delimiters = { '@', ':' };
+
+				for( int i = 0; i < args.Length; ++i )
+				{
+					string[] tokens = args[i].Split( delimiters, StringSplitOptions.None );
+
+					if( i == 0 )
+					{
+						Name = tokens[0];
+						if( tokens.Length > 1 )
+							AddressAsString = tokens[1];
+						if( tokens.Length > 2 )
+							Port = int.Parse( tokens[2] );
+					}
+
+					if( i > 0 )
+					{
+						Peer peer = new Peer() { Name = tokens[0] };
+						Threads.Add( peer );
+						if( tokens.Length > 1 )
+							peer.AddressAsString = tokens[1];
+						if( tokens.Length > 2 )
+							peer.Port = int.Parse( tokens[2] );
+					}
+				}
+			}
+		}
+
 		private Socket Socket = new Socket( AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp );
 
 		public MainModel()
 		{
 			Instance = this;
 
-			Threads.Add( new Peer() );
+			//Threads.Add( new Peer() );
 
 			StartCommand = new RelayCommand( o => { OnStartCommand(); } );
+			CreateThreadCommand = new RelayCommand( o => { OnCreateThreadCommand(); } );
+		}
+
+		private void OnCreateThreadCommand()
+		{
+			Threads.Add( new Peer() { Name = "placeholder name" } );
 		}
 
 		private void OnStartCommand()
@@ -47,7 +85,7 @@ namespace test_20200305_p2p
 
 		private List<(string, int, string)> m_WaitingMessages = new List<(string, int, string)>();
 
-		internal void EnqueueOutboundMessage( Peer receiver, int message_counter, string message )
+		public void EnqueueOutboundMessage( Peer receiver, int message_counter, string message )
 		{
 			if( m_Directory.ContainsKey( receiver.Name ) || receiver.IsValid )
 			{
@@ -77,8 +115,28 @@ namespace test_20200305_p2p
 			}
 		}
 
+		public void EnqueueOutboundIdent( Peer receiver )
+		{
+			if( m_Directory.ContainsKey( receiver.Name ) )
+			{
+				var endpoint = m_Directory[receiver.Name];
+
+				var ident_as_bytes = Codec.EncodeIdent( Name, Address, Port );
+				Socket.SendTo( ident_as_bytes.ToArray(), new IPEndPoint( endpoint.Item1, endpoint.Item2 ) );
+			}
+			else if( receiver.IsValid )
+			{
+				m_Directory.Add( receiver.Name, (receiver.Address, receiver.Port) );
+
+				var ident_as_bytes = Codec.EncodeIdent( Name, Address, Port );
+				Socket.SendTo( ident_as_bytes.ToArray(), new IPEndPoint( receiver.Address, receiver.Port ) );
+			}
+		}
+
 		private void Worker_DoWork( object sender, DoWorkEventArgs e )
 		{
+			Status = "started";
+
 			BackgroundWorker worker = sender as BackgroundWorker;
 
 			UdpClient listener = new UdpClient( Port );
@@ -189,10 +247,18 @@ namespace test_20200305_p2p
 					}
 				}
 				break;
+
+				case DataType.None:
+					break;
 			}
 		}
 
 		public RelayCommand StartCommand
+		{
+			get; private set;
+		}
+
+		public RelayCommand CreateThreadCommand
 		{
 			get; private set;
 		}
@@ -239,7 +305,10 @@ namespace test_20200305_p2p
 			{
 				if( SetProperty( ref m_AddressAsString, value ) )
 				{
-					Address = IPAddress.Parse( value );
+					if( IPAddress.TryParse( value, out var address ) )
+					{
+						Address = address;
+					}
 				}
 			}
 		}

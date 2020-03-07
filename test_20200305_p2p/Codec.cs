@@ -132,6 +132,13 @@ namespace test_20200305_p2p
 			return buffer.ToArray();
 		}
 
+		public static byte[] EncodeNone()
+		{
+			List<byte> buffer = new List<byte>();
+			buffer.AddRange( BitConverter.GetBytes( ( int ) DataType.None ) );
+			return buffer.ToArray();
+		}
+
 		//
 		//
 		//
