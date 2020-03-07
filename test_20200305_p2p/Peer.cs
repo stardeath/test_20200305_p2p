@@ -12,9 +12,11 @@ namespace test_20200305_p2p
 {
     public class Peer : BindableBase
     {
+        private int m_MessageCounter = 0;
+
         public Peer()
         {
-            Messages.Add(new Message() { IsReceivedMessage = true, Data = "window init done" });
+            Messages.Add(new Message() { Status = test_20200305_p2p.Message.StatusDesc.Technical, Data = "window init done" });
 
             SendCommand = new RelayCommand(o => { OnSendCommand(); });
 
@@ -25,18 +27,39 @@ namespace test_20200305_p2p
 
         private void OnSendCommand()
         {
-            IPAddress ip = IPAddress.Parse(Ip);
-            int port = int.Parse(Port);
-            EndPoint = new IPEndPoint(ip, port);
+            Messages.Add( new Message() { Status = test_20200305_p2p.Message.StatusDesc.Sending, Data = Message, Id = m_MessageCounter } );
+            MainModel.Instance.EnqueueOutboundMessage( this, m_MessageCounter, Message );
+            ++m_MessageCounter;
+            /*
+            IPEndPoint EndPoint = new IPEndPoint( Address, Port );
+            byte[] data = Codec.EncodeMessage( MainModel.Instance.Name, m_MessageCounter, Message );
 
             List<byte> buffer = new List<byte>(sizeof(int) * 2 + Message.Length * sizeof(char));
 
             buffer.AddRange(BitConverter.GetBytes((int)DataType.Message));
             buffer.AddRange(BitConverter.GetBytes((int)Message.Length));
-            buffer.AddRange(Encoding.ASCII.GetBytes(Message));
+            buffer.AddRange(Encoding.UTF8.GetBytes(Message));
 
-            Messages.Add(new Message() { IsReceivedMessage = false, Data = Message });
+            Messages.Add(new Message() { Status = test_20200305_p2p.Message.StatusDesc.Sending, Data = Message });
             Socket.SendTo(buffer.ToArray(), EndPoint);
+            */
+        }
+
+        public void MarkAsReceived( int id )
+        {
+            Message message = Messages.FirstOrDefault( m => m.Id == id );
+            if( message != null )
+            {
+                message.Status = test_20200305_p2p.Message.StatusDesc.Sent;
+            }
+        }
+
+        public bool IsValid
+        {
+            get
+            {
+                return !string.IsNullOrEmpty( Name ) && Address != null && Port != 0;
+            }
         }
 
         public RelayCommand SendCommand { get; private set; }
@@ -54,16 +77,48 @@ namespace test_20200305_p2p
             }
         }
 
-        private IPEndPoint m_EndPoint;
-        public IPEndPoint EndPoint
+        private IPAddress m_Address;
+        public IPAddress Address
         {
             get
             {
-                return m_EndPoint;
+                return m_Address;
             }
             set
             {
-                SetProperty(ref m_EndPoint, value);
+                if( SetProperty( ref m_Address, value ) )
+                {
+                    AddressAsString = value.ToString();
+                }
+            }
+        }
+
+        private string m_AddressAsString;
+        public string AddressAsString
+        {
+            get
+            {
+                return m_AddressAsString;
+            }
+            set
+            {
+                if( SetProperty( ref m_AddressAsString, value ) )
+                {
+                    Address = IPAddress.Parse( value );
+                }
+            }
+        }
+
+        private int m_Port;
+        public int Port
+        {
+            get
+            {
+                return m_Port;
+            }
+            set
+            {
+                SetProperty( ref m_Port, value );
             }
         }
 
@@ -80,33 +135,7 @@ namespace test_20200305_p2p
             }
         }
 
-        private string m_Ip;
-        public string Ip
-        {
-            get
-            {
-                return m_Ip;
-            }
-            set
-            {
-                SetProperty(ref m_Ip, value);
-            }
-        }
-
-        private string m_Port;
-        public string Port
-        {
-            get
-            {
-                return m_Port;
-            }
-            set
-            {
-                SetProperty(ref m_Port, value);
-            }
-        }
-
-        private string m_Message;
+        private string m_Message = "";
         public string Message
         {
             get
@@ -122,56 +151,6 @@ namespace test_20200305_p2p
         public void AddMessage(Message message)
         {
             Messages.Add(message);
-        }
-
-        List<byte> RecvBuffer = new List<byte>();
-        public void HandleData(byte[] data)
-        {
-            RecvBuffer.AddRange(data);
-
-            bool must_continue = true;
-            while(must_continue)
-            {
-                byte[] recv_bytes = RecvBuffer.ToArray();
-
-                if (recv_bytes.Length >= sizeof(int))
-                {
-                    int type = BitConverter.ToInt32(recv_bytes, 0);
-
-                    switch ((DataType)type)
-                    {
-                        case DataType.Message:
-                            if (recv_bytes.Length >= 2 * sizeof(int))
-                            {
-                                int size = BitConverter.ToInt32(recv_bytes, sizeof(int));
-                                if (recv_bytes.Length >= 2 * sizeof(int) + size)
-                                {
-                                    string msg = Encoding.ASCII.GetString(recv_bytes, 2 * sizeof(int), size);
-                                    Messages.Add(new Message() { IsReceivedMessage = true, Data = msg });
-
-                                    RecvBuffer.RemoveRange(0, 2 * sizeof(int) + size);
-                                }
-                                else
-                                {
-                                    must_continue = false;
-                                }
-                            }
-                            else
-                            {
-                                must_continue = false;
-                            }
-                            break;
-                    }
-                }
-                else
-                {
-                    must_continue = false;
-                }
-            }
-
-            //int type = BitConverter.ToInt32(recv_bytes, 0);
-            //int size = BitConverter.ToInt32(recv_bytes, sizeof(int));
-            //string msg = Encoding.ASCII.GetString(recv_bytes, 2 * sizeof(int), size);
         }
     }
 }

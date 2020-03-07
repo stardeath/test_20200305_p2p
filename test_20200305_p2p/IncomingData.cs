@@ -22,21 +22,28 @@ namespace test_20200305_p2p
     - int type = DataType.Ident
     - int name_size
     - char[] name
-    - ? ip
+    - int ip_size
+    - char[] ip
     - int port
 
     message :
     - int type = DataType.Message
+    - int sender_name_size
+    - char[] sender_name
     - int msg_number
     - int msg_size
     - char[] msg
 
     message ack :
     - int type = DataType.MessageAck
+    - int receiver_name_size
+    - char[] receiver_name
     - int msg_number
 
     peer request :
     - int type = DataType.PeerRequest
+    - int requester_name_size
+    - char[] requester_name
     - int peer_name_size
     - char[] peer_name
 
@@ -44,7 +51,8 @@ namespace test_20200305_p2p
     - int type = DataType.PeerResponse
     - int peer_name_size
     - char[] peer_name
-    - ? ip
+    - int ip_size
+    - char[] ip
     - int port
     */
 

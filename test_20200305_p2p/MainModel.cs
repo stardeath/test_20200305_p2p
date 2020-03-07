@@ -10,177 +10,277 @@ using System.Threading.Tasks;
 
 namespace test_20200305_p2p
 {
-    public class MainModel : BindableBase
-    {
-        public MainModel()
-        {
-            Threads.Add(new Peer());
+	public class MainModel : BindableBase
+	{
+		public static MainModel Instance
+		{
+			get;
+			private set;
+		}
 
-            StartCommand = new RelayCommand(o => { OnStartCommand(); });
-        }
+		private Dictionary<string, (IPAddress, int)> m_Directory = new Dictionary<string, (IPAddress, int)>();
 
-        private void OnStartCommand()
-        {
-            if(!Worker.IsBusy)
-            {
-                Worker.WorkerReportsProgress = true;
-                Worker.WorkerSupportsCancellation = true;
-                Worker.DoWork += new DoWorkEventHandler(Worker_DoWork);
-                //Worker.RunWorkerCompleted += new RunWorkerCompletedEventHandler(Worker_RunWorkerCompleted);
-                Worker.ProgressChanged += new ProgressChangedEventHandler(Worker_ProgressChanged);
+		private Socket Socket = new Socket( AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp );
 
-                Worker.RunWorkerAsync();
-            }
-        }
+		public MainModel()
+		{
+			Instance = this;
 
-        private void Worker_DoWork(object sender, DoWorkEventArgs e)
-        {
-            BackgroundWorker worker = sender as BackgroundWorker;
+			Threads.Add( new Peer() );
 
-            int port = int.Parse(Port);
+			StartCommand = new RelayCommand( o => { OnStartCommand(); } );
+		}
 
-            UdpClient listener = new UdpClient(port);
-            IPEndPoint end_point = new IPEndPoint(IPAddress.Any, port);
+		private void OnStartCommand()
+		{
+			if( !Worker.IsBusy )
+			{
+				Worker.WorkerReportsProgress = true;
+				Worker.WorkerSupportsCancellation = true;
+				Worker.DoWork += new DoWorkEventHandler( Worker_DoWork );
+				//Worker.RunWorkerCompleted += new RunWorkerCompletedEventHandler(Worker_RunWorkerCompleted);
+				Worker.ProgressChanged += new ProgressChangedEventHandler( Worker_ProgressChanged );
 
-            try
-            {
-                while (!worker.CancellationPending)
-                {
-                    byte[] bytes = listener.Receive(ref end_point);
+				Worker.RunWorkerAsync();
+			}
+		}
 
-                    worker.ReportProgress(0, new IncomingData { EndPoint = end_point, Data = bytes });
-                }
-            }
-            catch (SocketException ex)
-            {
-                Console.WriteLine(ex);
-            }
-            finally
-            {
-                listener.Close();
-            }
-        }
+		private List<(string, int, string)> m_WaitingMessages = new List<(string, int, string)>();
 
-        private void Worker_ProgressChanged(object sender, ProgressChangedEventArgs e)
-        {
-            if(e.UserState != null)
-            {
-                IncomingData id = e.UserState as IncomingData;
+		internal void EnqueueOutboundMessage( Peer receiver, int message_counter, string message )
+		{
+			if( m_Directory.ContainsKey( receiver.Name ) || receiver.IsValid )
+			{
+				if( message_counter == 0 && receiver.IsValid )
+				{
+					var ident_as_bytes = Codec.EncodeIdent( Name, Address, Port );
+					Socket.SendTo( ident_as_bytes.ToArray(), new IPEndPoint( receiver.Address, receiver.Port ) );
+				}
 
-                HandleData(id.EndPoint, id.Data);
-            }
-        }
+				if( !m_Directory.ContainsKey( receiver.Name ) )
+				{
+					m_Directory.Add( receiver.Name, (receiver.Address, receiver.Port) );
+				}
 
-        private List<byte> RecvBuffer = new List<byte>();
-        private void HandleData(IPEndPoint end_point, byte[] data)
-        {
-            Peer peer = Threads.FirstOrDefault(el => { return el.EndPoint != null && el.EndPoint.Equals(end_point); });
-            if (peer == null)
-            {
-                peer = new Peer() { EndPoint = end_point };
-                Threads.Add(peer);
-            }
+				var endpoint = m_Directory[receiver.Name];
+				var data = Codec.EncodeMessage( Name, message_counter, message );
+				Socket.SendTo( data.ToArray(), new IPEndPoint( endpoint.Item1, endpoint.Item2 ) );
+			}
+			else
+			{
+				m_WaitingMessages.Add( (receiver.Name, message_counter, message) );
+				foreach( var peer in Threads.Where( p => p.IsValid ) )
+				{
+					var data = Codec.EncodePeerRequest( Name, receiver.Name );
+					Socket.SendTo( data.ToArray(), new IPEndPoint( peer.Address, peer.Port ) );
+				}
+			}
+		}
 
-            RecvBuffer.AddRange(data);
+		private void Worker_DoWork( object sender, DoWorkEventArgs e )
+		{
+			BackgroundWorker worker = sender as BackgroundWorker;
 
-            bool must_continue = true;
-            while (must_continue)
-            {
-                byte[] recv_bytes = RecvBuffer.ToArray();
+			UdpClient listener = new UdpClient( Port );
+			IPEndPoint end_point = new IPEndPoint( IPAddress.Any, Port );
 
-                if (recv_bytes.Length >= sizeof(int))
-                {
-                    int type = BitConverter.ToInt32(recv_bytes, 0);
+			try
+			{
+				while( !worker.CancellationPending )
+				{
+					byte[] bytes = listener.Receive( ref end_point );
 
-                    switch ((DataType)type)
-                    {
-                        case DataType.Message:
-                            if (recv_bytes.Length >= 2 * sizeof(int))
-                            {
-                                int size = BitConverter.ToInt32(recv_bytes, sizeof(int));
-                                if (recv_bytes.Length >= 2 * sizeof(int) + size)
-                                {
-                                    string msg = Encoding.ASCII.GetString(recv_bytes, 2 * sizeof(int), size);
-                                    peer.AddMessage(new Message() { IsReceivedMessage = true, Data = msg });
+					worker.ReportProgress( 0, new IncomingData { EndPoint = end_point, Data = bytes } );
+				}
+			}
+			catch( SocketException ex )
+			{
+				Console.WriteLine( ex );
+			}
+			finally
+			{
+				listener.Close();
+			}
+		}
 
-                                    RecvBuffer.RemoveRange(0, 2 * sizeof(int) + size);
-                                }
-                                else
-                                {
-                                    must_continue = false;
-                                }
-                            }
-                            else
-                            {
-                                must_continue = false;
-                            }
-                            break;
+		private void Worker_ProgressChanged( object sender, ProgressChangedEventArgs e )
+		{
+			if( e.UserState != null )
+			{
+				IncomingData id = e.UserState as IncomingData;
 
-                        case DataType.MessageAck:
-                            break;
-                    }
-                }
-                else
-                {
-                    must_continue = false;
-                }
-            }
-        }
+				HandleData( id.EndPoint, id.Data );
+			}
+		}
 
-        public RelayCommand StartCommand { get; private set; }
+		private void HandleData( IPEndPoint end_point, byte[] recv_bytes )
+		{
+			DataType type = Codec.DecodeType( recv_bytes );
 
-        private BackgroundWorker Worker { get; set; } = new BackgroundWorker();
+			switch( type )
+			{
+				case DataType.Ident:
+				{
+					var message_data = Codec.DecodeIdent( recv_bytes );
+					if( !m_Directory.ContainsKey( message_data.Item1 ) )
+					{
+						m_Directory.Add( message_data.Item1, (message_data.Item2, message_data.Item3) );
+					}
+					else
+					{
+						m_Directory[message_data.Item1] = (message_data.Item2, message_data.Item3);
+					}
+					Peer peer = Threads.FirstOrDefault( el => { return el.Name == message_data.Item1; } );
+					if( peer != null )
+					{
+						peer.Address = message_data.Item2;
+						peer.Port = message_data.Item3;
+					}
+				}
+				break;
 
-        private string m_Name;
-        public string Name
-        {
-            get
-            {
-                return m_Name;
-            }
-            set
-            {
-                SetProperty(ref m_Name, value);
-            }
-        }
+				case DataType.Message:
+				{
+					var message_data = Codec.DecodeMessage( recv_bytes );
+					Peer peer = Threads.FirstOrDefault( el => { return el.Name == message_data.Item1; } );
+					if( peer == null )
+					{
+						peer = new Peer() { Name = message_data.Item1 };
+						Threads.Add( peer );
 
-        private string m_Port;
-        public string Port
-        {
-            get
-            {
-                return m_Port;
-            }
-            set
-            {
-                SetProperty(ref m_Port, value);
-            }
-        }
+						if( m_Directory.ContainsKey( message_data.Item1 ) )
+						{
+							var endpoint = m_Directory[message_data.Item1];
+							peer.Address = endpoint.Item1;
+							peer.Port = endpoint.Item2;
+						}
 
-        private string m_Status;
-        public string Status
-        {
-            get
-            {
-                return m_Status;
-            }
-            set
-            {
-                SetProperty(ref m_Status, value);
-            }
-        }
+					}
+					peer.AddMessage( new Message() { Status = Message.StatusDesc.Received, Data = message_data.Item3 } );
 
-        private ObservableCollection<Peer> m_Threads = new ObservableCollection<Peer>();
-        public ObservableCollection<Peer> Threads
-        {
-            get
-            {
-                return m_Threads;
-            }
-            set
-            {
-                SetProperty(ref m_Threads, value);
-            }
-        }
-    }
+					// send ack
+					var data = Codec.EncodeMessageAck( Name, message_data.Item2 );
+					Socket.SendTo( data.ToArray(), new IPEndPoint( peer.Address, peer.Port ) );
+				}
+				break;
+
+				case DataType.MessageAck:
+				{
+					var message_data = Codec.DecodeMessageAck( recv_bytes );
+
+					Peer peer = Threads.FirstOrDefault( el => { return el.Name == message_data.Item1; } );
+					if( peer != null )
+					{
+						peer.MarkAsReceived( message_data.Item2 );
+					}
+				}
+				break;
+
+				case DataType.PeerRequest:
+				{
+					var message_data = Codec.DecodePeerRequest( recv_bytes );
+
+					if( m_Directory.ContainsKey( message_data.Item1 ) && m_Directory.ContainsKey( message_data.Item2 ) )
+					{
+						var requester = m_Directory[message_data.Item1];
+						var endpoint = m_Directory[message_data.Item2];
+						var data = Codec.EncodeIdent( message_data.Item2, endpoint.Item1, endpoint.Item2 );
+						Socket.SendTo( data.ToArray(), new IPEndPoint( requester.Item1, requester.Item2 ) );
+					}
+				}
+				break;
+			}
+		}
+
+		public RelayCommand StartCommand
+		{
+			get; private set;
+		}
+
+		private BackgroundWorker Worker { get; set; } = new BackgroundWorker();
+
+		private string m_Name;
+		public string Name
+		{
+			get
+			{
+				return m_Name;
+			}
+			set
+			{
+				SetProperty( ref m_Name, value );
+			}
+		}
+
+		private IPAddress m_Address;
+		public IPAddress Address
+		{
+			get
+			{
+				return m_Address;
+			}
+			set
+			{
+				if( SetProperty( ref m_Address, value ) )
+				{
+					AddressAsString = value.ToString();
+				}
+			}
+		}
+
+		private string m_AddressAsString;
+		public string AddressAsString
+		{
+			get
+			{
+				return m_AddressAsString;
+			}
+			set
+			{
+				if( SetProperty( ref m_AddressAsString, value ) )
+				{
+					Address = IPAddress.Parse( value );
+				}
+			}
+		}
+
+		private int m_Port;
+		public int Port
+		{
+			get
+			{
+				return m_Port;
+			}
+			set
+			{
+				SetProperty( ref m_Port, value );
+			}
+		}
+
+		private string m_Status;
+		public string Status
+		{
+			get
+			{
+				return m_Status;
+			}
+			set
+			{
+				SetProperty( ref m_Status, value );
+			}
+		}
+
+		private ObservableCollection<Peer> m_Threads = new ObservableCollection<Peer>();
+		public ObservableCollection<Peer> Threads
+		{
+			get
+			{
+				return m_Threads;
+			}
+			set
+			{
+				SetProperty( ref m_Threads, value );
+			}
+		}
+	}
 }

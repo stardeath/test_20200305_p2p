@@ -55,6 +55,7 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Compile Include="Codec.cs" />
     <Compile Include="IncomingData.cs" />
     <Compile Include="MainModel.cs" />
     <Compile Include="RelayCommand.cs" />
