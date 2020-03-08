@@ -58,8 +58,6 @@ namespace test_20200305_p2p
 		{
 			Instance = this;
 
-			//Threads.Add( new Peer() );
-
 			StartCommand = new RelayCommand( o => { OnStartCommand(); } );
 			CreateThreadCommand = new RelayCommand( o => { OnCreateThreadCommand(); } );
 		}
@@ -171,6 +169,17 @@ namespace test_20200305_p2p
 			}
 		}
 
+		private Peer GetOrCreate( string name )
+		{
+			Peer peer = Threads.FirstOrDefault( el => { return el.Name == name; } );
+			if( peer == null )
+			{
+				peer = new Peer() { Name = name };
+				Threads.Add( peer );
+			}
+			return peer;
+		}
+
 		private void HandleData( IPEndPoint end_point, byte[] recv_bytes )
 		{
 			DataType type = Codec.DecodeType( recv_bytes );
@@ -180,6 +189,7 @@ namespace test_20200305_p2p
 				case DataType.Ident:
 				{
 					var message_data = Codec.DecodeIdent( recv_bytes );
+
 					if( !m_Directory.ContainsKey( message_data.Item1 ) )
 					{
 						m_Directory.Add( message_data.Item1, (message_data.Item2, message_data.Item3) );
@@ -188,11 +198,26 @@ namespace test_20200305_p2p
 					{
 						m_Directory[message_data.Item1] = (message_data.Item2, message_data.Item3);
 					}
-					Peer peer = Threads.FirstOrDefault( el => { return el.Name == message_data.Item1; } );
-					if( peer != null )
+
+					Peer peer = GetOrCreate( message_data.Item1 );
+					peer.Address = message_data.Item2;
+					peer.Port = message_data.Item3;
+
 					{
-						peer.Address = message_data.Item2;
-						peer.Port = message_data.Item3;
+						var waiting_messages = m_WaitingMessages.Where( wm => wm.Item1 == message_data.Item1 );
+						var endpoint = m_Directory[message_data.Item1];
+						foreach( var wm in waiting_messages )
+						{
+							if( wm.Item2 == 0 && peer.IsValid )
+							{
+								var ident_as_bytes = Codec.EncodeIdent( Name, Address, Port );
+								Socket.SendTo( ident_as_bytes.ToArray(), new IPEndPoint( peer.Address, peer.Port ) );
+							}
+
+							var data = Codec.EncodeMessage( Name, wm.Item2, wm.Item3 );
+							Socket.SendTo( data.ToArray(), new IPEndPoint( peer.Address, peer.Port ) );
+						}
+						m_WaitingMessages.RemoveAll( wm => wm.Item1 == message_data.Item1 );
 					}
 				}
 				break;
@@ -200,25 +225,20 @@ namespace test_20200305_p2p
 				case DataType.Message:
 				{
 					var message_data = Codec.DecodeMessage( recv_bytes );
-					Peer peer = Threads.FirstOrDefault( el => { return el.Name == message_data.Item1; } );
-					if( peer == null )
-					{
-						peer = new Peer() { Name = message_data.Item1 };
-						Threads.Add( peer );
 
-						if( m_Directory.ContainsKey( message_data.Item1 ) )
-						{
-							var endpoint = m_Directory[message_data.Item1];
-							peer.Address = endpoint.Item1;
-							peer.Port = endpoint.Item2;
-						}
-
-					}
+					Peer peer = GetOrCreate( message_data.Item1 );
 					peer.AddMessage( new Message() { Status = Message.StatusDesc.Received, Data = message_data.Item3 } );
 
 					// send ack
-					var data = Codec.EncodeMessageAck( Name, message_data.Item2 );
-					Socket.SendTo( data.ToArray(), new IPEndPoint( peer.Address, peer.Port ) );
+					if( peer.IsValid )
+					{
+						var data = Codec.EncodeMessageAck( Name, message_data.Item2 );
+						Socket.SendTo( data.ToArray(), new IPEndPoint( peer.Address, peer.Port ) );
+					}
+					else
+					{
+						peer.AddMessage( new Message() { Status = Message.StatusDesc.Technical, Data = "no connection infos for " + peer.Name } );
+					}
 				}
 				break;
 
@@ -226,17 +246,17 @@ namespace test_20200305_p2p
 				{
 					var message_data = Codec.DecodeMessageAck( recv_bytes );
 
-					Peer peer = Threads.FirstOrDefault( el => { return el.Name == message_data.Item1; } );
-					if( peer != null )
-					{
-						peer.MarkAsReceived( message_data.Item2 );
-					}
+					Peer peer = GetOrCreate( message_data.Item1 );
+					peer.MarkAsReceived( message_data.Item2 );
 				}
 				break;
 
 				case DataType.PeerRequest:
 				{
 					var message_data = Codec.DecodePeerRequest( recv_bytes );
+
+					Peer peer = GetOrCreate( message_data.Item1 );
+					peer.AddMessage( new Message() { Status = Message.StatusDesc.Technical, Data = message_data.Item1 + " requesting connection to " + message_data.Item2 } );
 
 					if( m_Directory.ContainsKey( message_data.Item1 ) && m_Directory.ContainsKey( message_data.Item2 ) )
 					{
@@ -247,6 +267,14 @@ namespace test_20200305_p2p
 					}
 				}
 				break;
+
+				//case DataType.PeerResponse:
+				//{
+				//	var message_data = Codec.DecodePeerResponse( recv_bytes );
+
+
+				//}
+				//break;
 
 				case DataType.None:
 					break;

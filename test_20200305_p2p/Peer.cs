@@ -20,16 +20,12 @@ namespace test_20200305_p2p
 
 			SendCommand = new RelayCommand( o => { OnSendCommand(); } );
 			SendIdentCommand = new RelayCommand( o => { OnSendIdentCommand(); } );
-
-			//Socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
 		}
 
 		private void OnSendIdentCommand()
 		{
 			MainModel.Instance.EnqueueOutboundIdent( this );
 		}
-
-		//private Socket Socket;
 
 		private void OnSendCommand()
 		{
