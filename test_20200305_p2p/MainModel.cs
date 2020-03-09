@@ -268,14 +268,6 @@ namespace test_20200305_p2p
 				}
 				break;
 
-				//case DataType.PeerResponse:
-				//{
-				//	var message_data = Codec.DecodePeerResponse( recv_bytes );
-
-
-				//}
-				//break;
-
 				case DataType.None:
 					break;
 			}
