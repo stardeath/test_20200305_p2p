@@ -331,7 +331,6 @@ namespace test_20200305_p2p
 				Worker.WorkerReportsProgress = true;
 				Worker.WorkerSupportsCancellation = true;
 				Worker.DoWork += new DoWorkEventHandler( Worker_DoWork );
-				//Worker.RunWorkerCompleted += new RunWorkerCompletedEventHandler(Worker_RunWorkerCompleted);
 				Worker.ProgressChanged += new ProgressChangedEventHandler( Worker_ProgressChanged );
 
 				Worker.RunWorkerAsync();
@@ -363,6 +362,8 @@ namespace test_20200305_p2p
 			{
 				listener.Close();
 			}
+
+			Status = "stopped";
 		}
 
 		private void Worker_ProgressChanged( object sender, ProgressChangedEventArgs e )

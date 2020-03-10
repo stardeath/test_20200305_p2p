@@ -19,7 +19,7 @@
 
 			<Label Content="Peer Name : " />
 			<TextBox Width="100" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
-			<Label Content="Ip : " />
+			<Label Content="Address : " />
 			<TextBox Width="100" Text="{Binding AddressAsString, UpdateSourceTrigger=PropertyChanged}" />
 			<Label Content="Port : " />
 			<TextBox Width="50" Text="{Binding Port}" />
