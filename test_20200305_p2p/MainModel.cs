@@ -12,13 +12,177 @@ namespace test_20200305_p2p
 {
 	public class MainModel : BindableBase
 	{
+		private IPAddress m_Address;
+
+		private string m_AddressAsString;
+
+		private Dictionary<string, (IPAddress, int)> m_Directory = new Dictionary<string, (IPAddress, int)>();
+
+		private string m_Name;
+
+		private int m_Port;
+
+		private string m_Status = "not started";
+
+		private ObservableCollection<Peer> m_Threads = new ObservableCollection<Peer>();
+
+		private List<(string, int, string)> m_WaitingMessages = new List<(string, int, string)>();
+
+		private Socket Socket = new Socket( AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp );
+
+		public MainModel()
+		{
+			Instance = this;
+
+			StartCommand = new RelayCommand( o => { OnStartCommand(); } );
+			CreateThreadCommand = new RelayCommand( o => { OnCreateThreadCommand(); } );
+		}
+
 		public static MainModel Instance
 		{
 			get;
 			private set;
 		}
+		public IPAddress Address
+		{
+			get
+			{
+				return m_Address;
+			}
+			set
+			{
+				if( SetProperty( ref m_Address, value ) )
+				{
+					AddressAsString = value.ToString();
+				}
+			}
+		}
 
-		private Dictionary<string, (IPAddress, int)> m_Directory = new Dictionary<string, (IPAddress, int)>();
+		public string AddressAsString
+		{
+			get
+			{
+				return m_AddressAsString;
+			}
+			set
+			{
+				if( SetProperty( ref m_AddressAsString, value ) )
+				{
+					if( IPAddress.TryParse( value, out var address ) )
+					{
+						Address = address;
+					}
+				}
+			}
+		}
+
+		public RelayCommand CreateThreadCommand
+		{
+			get; private set;
+		}
+
+		public string Name
+		{
+			get
+			{
+				return m_Name;
+			}
+			set
+			{
+				SetProperty( ref m_Name, value );
+			}
+		}
+
+		public int Port
+		{
+			get
+			{
+				return m_Port;
+			}
+			set
+			{
+				SetProperty( ref m_Port, value );
+			}
+		}
+
+		public RelayCommand StartCommand
+		{
+			get; private set;
+		}
+
+		public string Status
+		{
+			get
+			{
+				return m_Status;
+			}
+			set
+			{
+				SetProperty( ref m_Status, value );
+			}
+		}
+
+		public ObservableCollection<Peer> Threads
+		{
+			get
+			{
+				return m_Threads;
+			}
+			set
+			{
+				SetProperty( ref m_Threads, value );
+			}
+		}
+
+		private BackgroundWorker Worker { get; set; } = new BackgroundWorker();
+
+		public void EnqueueOutboundIdent( Peer receiver )
+		{
+			if( m_Directory.ContainsKey( receiver.Name ) )
+			{
+				var endpoint = m_Directory[receiver.Name];
+
+				var ident_as_bytes = Codec.EncodeIdent( Name, Address, Port );
+				Socket.SendTo( ident_as_bytes.ToArray(), new IPEndPoint( endpoint.Item1, endpoint.Item2 ) );
+			}
+			else if( receiver.IsValid )
+			{
+				m_Directory.Add( receiver.Name, (receiver.Address, receiver.Port) );
+
+				var ident_as_bytes = Codec.EncodeIdent( Name, Address, Port );
+				Socket.SendTo( ident_as_bytes.ToArray(), new IPEndPoint( receiver.Address, receiver.Port ) );
+			}
+		}
+
+		public void EnqueueOutboundMessage( Peer receiver, int message_counter, string message )
+		{
+			if( m_Directory.ContainsKey( receiver.Name ) || receiver.IsValid )
+			{
+				if( message_counter == 0 && receiver.IsValid )
+				{
+					var ident_as_bytes = Codec.EncodeIdent( Name, Address, Port );
+					Socket.SendTo( ident_as_bytes.ToArray(), new IPEndPoint( receiver.Address, receiver.Port ) );
+				}
+
+				if( !m_Directory.ContainsKey( receiver.Name ) )
+				{
+					m_Directory.Add( receiver.Name, (receiver.Address, receiver.Port) );
+				}
+
+				var endpoint = m_Directory[receiver.Name];
+				var data = Codec.EncodeMessage( Name, message_counter, message );
+				Socket.SendTo( data.ToArray(), new IPEndPoint( endpoint.Item1, endpoint.Item2 ) );
+			}
+			else
+			{
+				m_WaitingMessages.Add( (receiver.Name, message_counter, message) );
+				foreach( var peer in Threads.Where( p => p.IsValid ) )
+				{
+					var data = Codec.EncodePeerRequest( Name, receiver.Name );
+					Socket.SendTo( data.ToArray(), new IPEndPoint( peer.Address, peer.Port ) );
+				}
+			}
+		}
 
 		internal void Parse( string[] args )
 		{
@@ -51,124 +215,6 @@ namespace test_20200305_p2p
 				}
 			}
 		}
-
-		private Socket Socket = new Socket( AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp );
-
-		public MainModel()
-		{
-			Instance = this;
-
-			StartCommand = new RelayCommand( o => { OnStartCommand(); } );
-			CreateThreadCommand = new RelayCommand( o => { OnCreateThreadCommand(); } );
-		}
-
-		private void OnCreateThreadCommand()
-		{
-			Threads.Add( new Peer() { Name = "placeholder name" } );
-		}
-
-		private void OnStartCommand()
-		{
-			if( !Worker.IsBusy )
-			{
-				Worker.WorkerReportsProgress = true;
-				Worker.WorkerSupportsCancellation = true;
-				Worker.DoWork += new DoWorkEventHandler( Worker_DoWork );
-				//Worker.RunWorkerCompleted += new RunWorkerCompletedEventHandler(Worker_RunWorkerCompleted);
-				Worker.ProgressChanged += new ProgressChangedEventHandler( Worker_ProgressChanged );
-
-				Worker.RunWorkerAsync();
-			}
-		}
-
-		private List<(string, int, string)> m_WaitingMessages = new List<(string, int, string)>();
-
-		public void EnqueueOutboundMessage( Peer receiver, int message_counter, string message )
-		{
-			if( m_Directory.ContainsKey( receiver.Name ) || receiver.IsValid )
-			{
-				if( message_counter == 0 && receiver.IsValid )
-				{
-					var ident_as_bytes = Codec.EncodeIdent( Name, Address, Port );
-					Socket.SendTo( ident_as_bytes.ToArray(), new IPEndPoint( receiver.Address, receiver.Port ) );
-				}
-
-				if( !m_Directory.ContainsKey( receiver.Name ) )
-				{
-					m_Directory.Add( receiver.Name, (receiver.Address, receiver.Port) );
-				}
-
-				var endpoint = m_Directory[receiver.Name];
-				var data = Codec.EncodeMessage( Name, message_counter, message );
-				Socket.SendTo( data.ToArray(), new IPEndPoint( endpoint.Item1, endpoint.Item2 ) );
-			}
-			else
-			{
-				m_WaitingMessages.Add( (receiver.Name, message_counter, message) );
-				foreach( var peer in Threads.Where( p => p.IsValid ) )
-				{
-					var data = Codec.EncodePeerRequest( Name, receiver.Name );
-					Socket.SendTo( data.ToArray(), new IPEndPoint( peer.Address, peer.Port ) );
-				}
-			}
-		}
-
-		public void EnqueueOutboundIdent( Peer receiver )
-		{
-			if( m_Directory.ContainsKey( receiver.Name ) )
-			{
-				var endpoint = m_Directory[receiver.Name];
-
-				var ident_as_bytes = Codec.EncodeIdent( Name, Address, Port );
-				Socket.SendTo( ident_as_bytes.ToArray(), new IPEndPoint( endpoint.Item1, endpoint.Item2 ) );
-			}
-			else if( receiver.IsValid )
-			{
-				m_Directory.Add( receiver.Name, (receiver.Address, receiver.Port) );
-
-				var ident_as_bytes = Codec.EncodeIdent( Name, Address, Port );
-				Socket.SendTo( ident_as_bytes.ToArray(), new IPEndPoint( receiver.Address, receiver.Port ) );
-			}
-		}
-
-		private void Worker_DoWork( object sender, DoWorkEventArgs e )
-		{
-			Status = "started";
-
-			BackgroundWorker worker = sender as BackgroundWorker;
-
-			UdpClient listener = new UdpClient( Port );
-			IPEndPoint end_point = new IPEndPoint( IPAddress.Any, Port );
-
-			try
-			{
-				while( !worker.CancellationPending )
-				{
-					byte[] bytes = listener.Receive( ref end_point );
-
-					worker.ReportProgress( 0, new IncomingData { EndPoint = end_point, Data = bytes } );
-				}
-			}
-			catch( SocketException ex )
-			{
-				Console.WriteLine( ex );
-			}
-			finally
-			{
-				listener.Close();
-			}
-		}
-
-		private void Worker_ProgressChanged( object sender, ProgressChangedEventArgs e )
-		{
-			if( e.UserState != null )
-			{
-				IncomingData id = e.UserState as IncomingData;
-
-				HandleData( id.EndPoint, id.Data );
-			}
-		}
-
 		private Peer GetOrCreate( string name )
 		{
 			Peer peer = Threads.FirstOrDefault( el => { return el.Name == name; } );
@@ -273,102 +319,59 @@ namespace test_20200305_p2p
 			}
 		}
 
-		public RelayCommand StartCommand
+		private void OnCreateThreadCommand()
 		{
-			get; private set;
+			Threads.Add( new Peer() { Name = "placeholder name" } );
 		}
 
-		public RelayCommand CreateThreadCommand
+		private void OnStartCommand()
 		{
-			get; private set;
-		}
-
-		private BackgroundWorker Worker { get; set; } = new BackgroundWorker();
-
-		private string m_Name;
-		public string Name
-		{
-			get
+			if( !Worker.IsBusy )
 			{
-				return m_Name;
-			}
-			set
-			{
-				SetProperty( ref m_Name, value );
+				Worker.WorkerReportsProgress = true;
+				Worker.WorkerSupportsCancellation = true;
+				Worker.DoWork += new DoWorkEventHandler( Worker_DoWork );
+				//Worker.RunWorkerCompleted += new RunWorkerCompletedEventHandler(Worker_RunWorkerCompleted);
+				Worker.ProgressChanged += new ProgressChangedEventHandler( Worker_ProgressChanged );
+
+				Worker.RunWorkerAsync();
 			}
 		}
-
-		private IPAddress m_Address;
-		public IPAddress Address
+		private void Worker_DoWork( object sender, DoWorkEventArgs e )
 		{
-			get
+			Status = "started";
+
+			BackgroundWorker worker = sender as BackgroundWorker;
+
+			UdpClient listener = new UdpClient( Port );
+			IPEndPoint end_point = new IPEndPoint( IPAddress.Any, Port );
+
+			try
 			{
-				return m_Address;
-			}
-			set
-			{
-				if( SetProperty( ref m_Address, value ) )
+				while( !worker.CancellationPending )
 				{
-					AddressAsString = value.ToString();
+					byte[] bytes = listener.Receive( ref end_point );
+
+					worker.ReportProgress( 0, new IncomingData { EndPoint = end_point, Data = bytes } );
 				}
 			}
-		}
-
-		private string m_AddressAsString;
-		public string AddressAsString
-		{
-			get
+			catch( SocketException ex )
 			{
-				return m_AddressAsString;
+				Console.WriteLine( ex );
 			}
-			set
+			finally
 			{
-				if( SetProperty( ref m_AddressAsString, value ) )
-				{
-					if( IPAddress.TryParse( value, out var address ) )
-					{
-						Address = address;
-					}
-				}
+				listener.Close();
 			}
 		}
 
-		private int m_Port;
-		public int Port
+		private void Worker_ProgressChanged( object sender, ProgressChangedEventArgs e )
 		{
-			get
+			if( e.UserState != null )
 			{
-				return m_Port;
-			}
-			set
-			{
-				SetProperty( ref m_Port, value );
-			}
-		}
+				IncomingData id = e.UserState as IncomingData;
 
-		private string m_Status;
-		public string Status
-		{
-			get
-			{
-				return m_Status;
-			}
-			set
-			{
-				SetProperty( ref m_Status, value );
-			}
-		}
-
-		private ObservableCollection<Peer> m_Threads = new ObservableCollection<Peer>();
-		public ObservableCollection<Peer> Threads
-		{
-			get
-			{
-				return m_Threads;
-			}
-			set
-			{
-				SetProperty( ref m_Threads, value );
+				HandleData( id.EndPoint, id.Data );
 			}
 		}
 	}

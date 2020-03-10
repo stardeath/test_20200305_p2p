@@ -12,7 +12,16 @@ namespace test_20200305_p2p
 {
 	public class Peer : BindableBase
 	{
+		private IPAddress m_Address;
+		private string m_AddressAsString;
+		private string m_Message = "";
 		private int m_MessageCounter = 0;
+
+		private ObservableCollection<Message> m_Messages = new ObservableCollection<Message>();
+
+		private string m_Name;
+
+		private int m_Port;
 
 		public Peer()
 		{
@@ -22,58 +31,6 @@ namespace test_20200305_p2p
 			SendIdentCommand = new RelayCommand( o => { OnSendIdentCommand(); } );
 		}
 
-		private void OnSendIdentCommand()
-		{
-			MainModel.Instance.EnqueueOutboundIdent( this );
-		}
-
-		private void OnSendCommand()
-		{
-			Messages.Add( new Message() { Status = test_20200305_p2p.Message.StatusDesc.Sending, Data = Message, Id = m_MessageCounter } );
-			MainModel.Instance.EnqueueOutboundMessage( this, m_MessageCounter, Message );
-			++m_MessageCounter;
-		}
-
-		public void MarkAsReceived( int id )
-		{
-			Message message = Messages.FirstOrDefault( m => m.Id == id );
-			if( message != null )
-			{
-				message.Status = test_20200305_p2p.Message.StatusDesc.Sent;
-			}
-		}
-
-		public bool IsValid
-		{
-			get
-			{
-				return !string.IsNullOrEmpty( Name ) && Address != null && Port != 0;
-			}
-		}
-
-		public RelayCommand SendCommand
-		{
-			get; private set;
-		}
-		public RelayCommand SendIdentCommand
-		{
-			get; private set;
-		}
-
-		private string m_Name;
-		public string Name
-		{
-			get
-			{
-				return m_Name;
-			}
-			set
-			{
-				SetProperty( ref m_Name, value );
-			}
-		}
-
-		private IPAddress m_Address;
 		public IPAddress Address
 		{
 			get
@@ -89,7 +46,6 @@ namespace test_20200305_p2p
 			}
 		}
 
-		private string m_AddressAsString;
 		public string AddressAsString
 		{
 			get
@@ -108,33 +64,14 @@ namespace test_20200305_p2p
 			}
 		}
 
-		private int m_Port;
-		public int Port
+		public bool IsValid
 		{
 			get
 			{
-				return m_Port;
-			}
-			set
-			{
-				SetProperty( ref m_Port, value );
+				return !string.IsNullOrEmpty( Name ) && Address != null && Port != 0;
 			}
 		}
 
-		private ObservableCollection<Message> m_Messages = new ObservableCollection<Message>();
-		public ObservableCollection<Message> Messages
-		{
-			get
-			{
-				return m_Messages;
-			}
-			set
-			{
-				SetProperty( ref m_Messages, value );
-			}
-		}
-
-		private string m_Message = "";
 		public string Message
 		{
 			get
@@ -147,9 +84,76 @@ namespace test_20200305_p2p
 			}
 		}
 
+		public ObservableCollection<Message> Messages
+		{
+			get
+			{
+				return m_Messages;
+			}
+			set
+			{
+				SetProperty( ref m_Messages, value );
+			}
+		}
+
+		public string Name
+		{
+			get
+			{
+				return m_Name;
+			}
+			set
+			{
+				SetProperty( ref m_Name, value );
+			}
+		}
+
+		public int Port
+		{
+			get
+			{
+				return m_Port;
+			}
+			set
+			{
+				SetProperty( ref m_Port, value );
+			}
+		}
+
+		public RelayCommand SendCommand
+		{
+			get; private set;
+		}
+
+		public RelayCommand SendIdentCommand
+		{
+			get; private set;
+		}
+
 		public void AddMessage( Message message )
 		{
 			Messages.Add( message );
+		}
+
+		public void MarkAsReceived( int id )
+		{
+			Message message = Messages.FirstOrDefault( m => m.Id == id );
+			if( message != null )
+			{
+				message.Status = test_20200305_p2p.Message.StatusDesc.Sent;
+			}
+		}
+
+		private void OnSendCommand()
+		{
+			Messages.Add( new Message() { Status = test_20200305_p2p.Message.StatusDesc.Sending, Data = Message, Id = m_MessageCounter } );
+			MainModel.Instance.EnqueueOutboundMessage( this, m_MessageCounter, Message );
+			++m_MessageCounter;
+		}
+
+		private void OnSendIdentCommand()
+		{
+			MainModel.Instance.EnqueueOutboundIdent( this );
 		}
 	}
 }
