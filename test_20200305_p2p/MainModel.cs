@@ -12,8 +12,6 @@ namespace test_20200305_p2p
 {
 	public class MainModel : BindableBase
 	{
-		private IPAddress m_Address;
-
 		private string m_AddressAsString;
 
 		private Dictionary<string, (IPAddress, int)> m_Directory = new Dictionary<string, (IPAddress, int)>();
@@ -47,14 +45,18 @@ namespace test_20200305_p2p
 		{
 			get
 			{
-				return m_Address;
+				if( IPAddress.TryParse( AddressAsString, out var address ) )
+				{
+					return address;
+				}
+				else
+				{
+					return null;
+				}
 			}
 			set
 			{
-				if( SetProperty( ref m_Address, value ) )
-				{
-					AddressAsString = value.ToString();
-				}
+				AddressAsString = value.ToString();
 			}
 		}
 
@@ -66,13 +68,7 @@ namespace test_20200305_p2p
 			}
 			set
 			{
-				if( SetProperty( ref m_AddressAsString, value ) )
-				{
-					if( IPAddress.TryParse( value, out var address ) )
-					{
-						Address = address;
-					}
-				}
+				SetProperty( ref m_AddressAsString, value );
 			}
 		}
 
